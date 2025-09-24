@@ -43,7 +43,7 @@ func TestSomething(t *testing.T) {
 	}
 	defer c.CloseInstance(t.Context(), db)
 
-	err = c.Connection.Ping(t.Context())
+	err = db.Connection.Ping(t.Context())
 	if err != nil {
 		t.Fatalf("failed to ping database: %v", err)
 	}
