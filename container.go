@@ -161,6 +161,8 @@ func setup(ctx context.Context, cfg Config) (*Container, error) {
 		fmt.Println("Database migrations complete")
 	}
 
+	//TODO: Add some method for seeding in addition to migrations
+
 	c, err := pool.Acquire(ctx)
 	if err != nil {
 		return nil, err

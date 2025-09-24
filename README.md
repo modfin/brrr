@@ -5,11 +5,11 @@ Brrr is an integration testing thingy for go applications using postgres.
 1. Launches a single go test container for postgres.
 2. Optionally runs seeding migration scripts.
 3. Marks the database as a template database.
-4. For each tests, creates a new database from the template so each test can have its own database in isolation.
-5. Runs isolated integration tests in parallell, so you can make some brrr noises while waiting.
+4. For each test, creates a new database from the template so each test can have its own database in isolation.
+5. Runs isolated integration tests in parallel.
 
 ## Why The name
-It goes fast. No benchmarks because simple benchmarks are stupid.
+It goes fast.
 
 ## Example
 ```
@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatalf("failed to create test container: %v", err)
 	}
-	defer tc.Close()
+	defer c.Close()
 
 	exitCode := m.Run()
 
@@ -43,7 +43,7 @@ func TestSomething(t *testing.T) {
 	}
 	defer c.CloseInstance(t.Context(), db)
 
-	err = db.Connection.Ping(t.Context())
+	err = c.Connection.Ping(t.Context())
 	if err != nil {
 		t.Fatalf("failed to ping database: %v", err)
 	}
