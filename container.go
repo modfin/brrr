@@ -2,8 +2,11 @@ package brrr
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,6 +41,9 @@ type Config struct {
 
 	// Path to migrations/seeding directory. Will ignore if empty.
 	MigrationsPath string
+
+	// Path to seeding directory. Will ignore if empty.
+	SeedPath string
 
 	host string
 	port int
@@ -133,35 +139,19 @@ func setup(ctx context.Context, cfg Config) (*Container, error) {
 
 	if cfg.MigrationsPath != "" {
 		fmt.Println("Starting migrations")
-		wd, err := os.Getwd()
-		if err != nil {
+		if err := runMigrations(cfg, cfg.MigrationsPath); err != nil {
 			return nil, err
 		}
-		absMigrationsPath := filepath.Join(wd, cfg.MigrationsPath)
-
-		fmt.Printf("Running migrations from: %s\n", absMigrationsPath)
-
-		m, err := migrate.New("file://"+absMigrationsPath, fmt.Sprintf("pgx5://%s:%s@%s:%d/%s?sslmode=disable", cfg.User, cfg.Password, cfg.host, cfg.port, cfg.Database))
-		if err != nil {
-			return nil, err
-		}
-
-		if err = m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-			return nil, err
-		}
-
-		sErr, mErr := m.Close()
-		if sErr != nil {
-			return nil, sErr
-		}
-		if mErr != nil {
-			return nil, mErr
-		}
-
 		fmt.Println("Database migrations complete")
 	}
 
-	//TODO: Add some method for seeding in addition to migrations
+	if cfg.SeedPath != "" {
+		fmt.Println("Starting seeding")
+		if err := executeFiles(cfg, cfg.SeedPath); err != nil {
+			return nil, err
+		}
+		fmt.Println("Database seeding complete")
+	}
 
 	c, err := pool.Acquire(ctx)
 	if err != nil {
@@ -180,6 +170,99 @@ func setup(ctx context.Context, cfg Config) (*Container, error) {
 		container: db,
 		pool:      pool,
 	}, nil
+}
+
+// runMigrations runs sql files from the specified path using go migrate file includings its file notations using sequences and up/down.
+func runMigrations(cfg Config, path string) error {
+	absPath := path
+	if !filepath.IsAbs(path) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		absPath = filepath.Join(wd, path)
+	}
+
+	fmt.Printf("Executing files from: %s\n", absPath)
+
+	m, err := migrate.New("file://"+absPath, fmt.Sprintf("pgx5://%s:%s@%s:%d/%s?sslmode=disable", cfg.User, cfg.Password, cfg.host, cfg.port, cfg.Database))
+	if err != nil {
+		return err
+	}
+
+	if err = m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return err
+	}
+
+	sErr, mErr := m.Close()
+	if sErr != nil {
+		return sErr
+	}
+	if mErr != nil {
+		return mErr
+	}
+
+	return nil
+}
+
+// executeFiles reads and executes SQL files from a directory, ordered by filename.
+func executeFiles(cfg Config, path string) error {
+	absPath := path
+	if !filepath.IsAbs(path) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		absPath = filepath.Join(wd, path)
+	}
+
+	fmt.Printf("Executing files from: %s\n", absPath)
+
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", cfg.host, cfg.port, cfg.User, cfg.Password, cfg.Database)
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return fmt.Errorf("failed to open database connection: %w", err)
+	}
+	defer db.Close()
+
+	if err = db.Ping(); err != nil {
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	files, err := os.ReadDir(absPath)
+	if err != nil {
+		return fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	var sqlFiles []fs.DirEntry
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".sql") {
+			sqlFiles = append(sqlFiles, file)
+		}
+	}
+
+	// Sort by file name, ascending
+	sort.Slice(sqlFiles, func(i, j int) bool {
+		return sqlFiles[i].Name() < sqlFiles[j].Name()
+	})
+
+	for _, file := range sqlFiles {
+		filePath := filepath.Join(absPath, file.Name())
+		fmt.Printf("  -> Executing: %s\n", file.Name())
+
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", file.Name(), err)
+		}
+
+		// If switching from pgx, make sure replacement has multi-statement support
+		if _, err = db.Exec(string(content)); err != nil {
+			return fmt.Errorf("failed to execute SQL in %s: %w", file.Name(), err)
+		}
+	}
+
+	return nil
 }
 
 func setupPgxPool(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
