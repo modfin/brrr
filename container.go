@@ -50,9 +50,6 @@ type Config struct {
 	// Seed func to run after migrations. Will ignore if empty.
 	SeedFunc func(db *sql.DB, connStr string) error
 
-	// Inline SQL script to run after migrations. Will ignore if empty.
-	SeedInline string
-
 	// Logger for logging the test container's output. Useful for debugging. Default to testcontainer's noopLogger
 	Logger *slog.Logger
 
@@ -183,29 +180,6 @@ func setup(ctx context.Context, cfg Config) (*Container, error) {
 			return nil, err
 		}
 		fmt.Println("Database seed func complete")
-	}
-
-	if cfg.SeedInline != "" {
-		fmt.Println("Executing inline seed")
-		err = func() error {
-			dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", cfg.host, cfg.port, cfg.User, cfg.Password, cfg.Database)
-			db, err := sql.Open("pgx", dsn)
-			if err != nil {
-				return fmt.Errorf("failed to open database connection: %w", err)
-			}
-			defer db.Close()
-			if err = db.Ping(); err != nil {
-				return fmt.Errorf("failed to ping database: %w", err)
-			}
-			if _, err = db.Exec(cfg.SeedInline); err != nil {
-				return err
-			}
-			return nil
-		}()
-		if err != nil {
-			return nil, err
-		}
-		fmt.Println("Database inline seed complete")
 	}
 
 	c, err := pool.Acquire(ctx)
