@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -44,6 +46,12 @@ type Config struct {
 
 	// Path to seeding directory. Will ignore if empty.
 	SeedPath string
+
+	// Seed func to run after migrations. Will ignore if empty.
+	SeedFunc func(db *sql.DB, connStr string) error
+
+	// Logger for logging the test container's output. Useful for debugging. Default to testcontainer's noopLogger
+	Logger *slog.Logger
 
 	host string
 	port int
@@ -151,6 +159,27 @@ func setup(ctx context.Context, cfg Config) (*Container, error) {
 			return nil, err
 		}
 		fmt.Println("Database seeding complete")
+	}
+
+	if cfg.SeedFunc != nil {
+		err = func() error {
+			dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", cfg.host, cfg.port, cfg.User, cfg.Password, cfg.Database)
+			db, err := sql.Open("pgx", dsn)
+			if err != nil {
+				return fmt.Errorf("failed to open database connection: %w", err)
+			}
+			defer db.Close()
+			if err = db.Ping(); err != nil {
+				return fmt.Errorf("failed to ping database: %w", err)
+			}
+
+			connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable", cfg.User, cfg.Password, cfg.host, cfg.port, cfg.Database)
+			return cfg.SeedFunc(db, connStr)
+		}()
+		if err != nil {
+			return nil, err
+		}
+		fmt.Println("Database seed func complete")
 	}
 
 	c, err := pool.Acquire(ctx)
@@ -309,14 +338,27 @@ func setupPostgresTestContainer(ctx context.Context, cfg Config) (testcontainers
 		}).WithStartupTimeout(10 * time.Second),
 	}
 
+	var logger log.Logger
+	if cfg.Logger != nil {
+		logger = &SlogAdapter{logger: cfg.Logger}
+	}
+
 	pgContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
-		//Logger:  log.Default(),
-		Started: true,
+		Logger:           logger,
+		Started:          true,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return pgContainer, nil
+}
+
+type SlogAdapter struct {
+	logger *slog.Logger
+}
+
+func (s *SlogAdapter) Printf(format string, v ...any) {
+	s.logger.Info(fmt.Sprintf(format, v))
 }
