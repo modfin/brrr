@@ -135,7 +135,19 @@ func setup(ctx context.Context, cfg Config) (*Container, error) {
 		return nil, err
 	}
 
+	inspect, err := db.Inspect(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg.host = "localhost"
+	if inspect != nil &&
+		inspect.NetworkSettings != nil &&
+		inspect.NetworkSettings.Networks != nil &&
+		inspect.NetworkSettings.Networks["bridge"] != nil {
+		cfg.host = inspect.NetworkSettings.Networks["bridge"].Gateway
+	}
+
 	cfg.port = port.Int()
 
 	pool, err := setupPgxPool(ctx, cfg)
