@@ -374,5 +374,5 @@ type SlogAdapter struct {
 }
 
 func (s *SlogAdapter) Printf(format string, v ...any) {
-	s.logger.Info(fmt.Sprintf(format, v))
+	s.logger.Info(fmt.Sprintf(format, v...))
 }
