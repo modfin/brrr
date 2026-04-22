@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -145,10 +144,10 @@ func setup(ctx context.Context, cfg Config) (*Container, error) {
 		inspect.NetworkSettings != nil &&
 		inspect.NetworkSettings.Networks != nil &&
 		inspect.NetworkSettings.Networks["bridge"] != nil {
-		cfg.host = inspect.NetworkSettings.Networks["bridge"].Gateway
+		cfg.host = inspect.NetworkSettings.Networks["bridge"].Gateway.String()
 	}
 
-	cfg.port = port.Int()
+	cfg.port = int(port.Num())
 
 	pool, err := setupPgxPool(ctx, cfg)
 	if err != nil {
@@ -345,8 +344,8 @@ func setupPostgresTestContainer(ctx context.Context, cfg Config) (testcontainers
 		Tmpfs: map[string]string{
 			"/var/lib/pg/data": "rw",
 		},
-		WaitingFor: wait.ForSQL(nat.Port(port), "pgx", func(host string, port nat.Port) string {
-			return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable", cfg.User, cfg.Password, host, port.Int(), cfg.Database)
+		WaitingFor: wait.ForSQL(port, "pgx", func(host string, port string) string {
+			return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.User, cfg.Password, host, port, cfg.Database)
 		}).WithStartupTimeout(10 * time.Second),
 	}
 
