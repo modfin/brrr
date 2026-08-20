@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/log"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -344,11 +345,8 @@ func setupPostgresTestContainer(ctx context.Context, cfg Config) (testcontainers
 		Tmpfs: map[string]string{
 			"/var/lib/pg/data": "rw",
 		},
-		WaitingFor: wait.ForSQL(port, "pgx", func(host string, port string) string {
-			// testcontainers-go v0.42 passes the port as "<num>/<proto>" (e.g. "5432/tcp").
-			// Strip the protocol suffix so it doesn't leak into the URL path and corrupt the dbname.
-			portNum, _, _ := strings.Cut(port, "/")
-			return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.User, cfg.Password, host, portNum, cfg.Database)
+		WaitingFor: wait.ForSQL(port, "pgx", func(host string, port network.Port) string {
+			return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.User, cfg.Password, host, port.Port(), cfg.Database)
 		}).WithStartupTimeout(10 * time.Second),
 	}
 
